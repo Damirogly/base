@@ -167,6 +167,22 @@ async fn run_load_test(args: LoadArgs) -> Result<()> {
     let mut runner = LoadRunner::new(load_config.clone())?;
     runner.set_config_summary(config_summary.clone());
 
+    if let Some(recipient_offset) = runner.recipient_offset() {
+        if test_config.mnemonic.is_some() {
+            println!(
+                "Fresh-recipient mode: recipient_offset={recipient_offset} \
+                 (recover with AccountPool::from_mnemonic(mnemonic, n, recipient_offset))",
+            );
+        } else {
+            println!(
+                "Fresh-recipient mode: seed={} recipient_offset={recipient_offset} \
+                 (recover with AccountPool::with_offset(seed, n, recipient_offset))",
+                load_config.seed,
+            );
+        }
+        println!();
+    }
+
     // Install signal handling before any long-running work so shutdown can
     // stop the run loop and still drain funded accounts.
     let stop_flag = runner.stop_flag();

@@ -181,3 +181,16 @@ real_token_setup:
 ```
 
 `reverse_min_amount` and `reverse_max_amount` on `uniswap_v3` and `aerodrome_cl` set the amount range for `token_out → token_in` swaps. Use these when the two tokens have different decimal scales; when omitted, the reverse range matches the forward range.
+
+#### Fresh Recipients
+
+By default, transfer recipients are picked from the bounded sender pool, so long runs keep targeting the same `sender_count` addresses. Set `fresh_recipients: true` to derive a fresh recipient signing key per transaction from the configured mnemonic, or from `seed` when no mnemonic is set. This drives account-trie fan-out for workloads like the `dust` performance baseline.
+
+```yaml
+fresh_recipients: true
+transactions:
+  - weight: 100
+    type: transfer
+```
+
+Recipient keys are advanced past the sender keys. The runner prints `recipient_offset` at startup; recover recipients with `AccountPool::from_mnemonic(mnemonic, n, recipient_offset)` or `AccountPool::with_offset(seed, n, recipient_offset)`.

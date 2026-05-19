@@ -202,6 +202,10 @@ pub struct LoadConfig {
     pub max_gas_price: u128,
     /// Builder flashblocks broadcast WebSocket endpoint.
     pub flashblocks_ws: Url,
+    /// If `true`, draw a fresh recipient address per transaction instead of
+    /// cycling through the sender pool. Used to drive account-trie fan-out for
+    /// `transfer` / `calldata` workloads.
+    pub fresh_recipients: bool,
 }
 
 impl LoadConfig {
@@ -226,6 +230,7 @@ impl LoadConfig {
             batch_timeout: Duration::from_millis(50),
             max_gas_price: DEFAULT_MAX_GAS_PRICE,
             flashblocks_ws: "ws://localhost:7111".parse().expect("valid default flashblocks_ws"),
+            fresh_recipients: false,
         }
     }
 

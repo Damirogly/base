@@ -207,6 +207,9 @@ pub struct ConfigSummary {
     pub chain_id: Option<u64>,
     /// Transaction type configuration.
     pub transactions: serde_json::Value,
+    /// Whether fresh-recipient mode is enabled.
+    #[serde(default)]
+    pub fresh_recipients: bool,
     /// Address of the precompile looper contract.
     pub looper_contract: Option<String>,
     /// Amount of each swap token per sender (in wei, as string).

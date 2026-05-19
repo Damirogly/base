@@ -47,7 +47,7 @@ use crate::{
         create_wallet_provider,
     },
     workload::{
-        AccountPool, AerodromeClPayload, CalldataPayload, Erc20Payload, OsakaPayload,
+        AccountPool, AerodromeClPayload, CalldataPayload, Erc20Payload, KeyStream, OsakaPayload,
         PrecompilePayload, TransferPayload, UniswapV3Payload, WorkloadGenerator,
     },
 };
@@ -83,6 +83,12 @@ pub struct LoadRunner {
     last_funds_low: bool,
     funder_address: Option<String>,
     sender_addresses: Vec<String>,
+    /// On-demand recipient key stream for fresh-recipient mode. Uses the same
+    /// derivation as the sender pool, advanced past the sender keys so
+    /// recipients never collide with senders.
+    recipient_keys: Option<KeyStream>,
+    /// `AccountPool` offset that reproduces the same recipient keys.
+    recipient_offset: Option<usize>,
 }
 
 impl LoadRunner {
@@ -139,6 +145,29 @@ impl LoadRunner {
             "load runner created"
         );
 
+        let (recipient_keys, recipient_offset) = if config.fresh_recipients {
+            let offset = config.sender_offset + config.account_count;
+            let stream = if let Some(mnemonic) = &config.mnemonic {
+                info!(
+                    recipient_offset = offset,
+                    "fresh-recipient mode enabled; recover addresses with \
+                     AccountPool::from_mnemonic(mnemonic, n, recipient_offset)",
+                );
+                KeyStream::from_mnemonic(mnemonic.clone(), offset)?
+            } else {
+                info!(
+                    seed = config.seed,
+                    recipient_offset = offset,
+                    "fresh-recipient mode enabled; recover addresses with \
+                     AccountPool::with_offset(seed, n, recipient_offset)",
+                );
+                KeyStream::from_seed(config.seed, offset)
+            };
+            (Some(stream), Some(offset))
+        } else {
+            (None, None)
+        };
+
         Ok(Self {
             config,
             config_summary: None,
@@ -159,7 +188,15 @@ impl LoadRunner {
             last_funds_low: false,
             funder_address: None,
             sender_addresses,
+            recipient_keys,
+            recipient_offset,
         })
+    }
+
+    /// Returns the `AccountPool` offset that reproduces recipient addresses
+    /// generated in fresh-recipient mode.
+    pub const fn recipient_offset(&self) -> Option<usize> {
+        self.recipient_offset
     }
 
     /// Sets the funder wallet address for inclusion in live snapshots.
@@ -1614,8 +1651,12 @@ impl LoadRunner {
                 consecutive_at_limit = 0;
 
                 let from = account.address;
-                let to_idx = (current_account_idx + 1) % account_count;
-                let to = self.accounts.accounts()[to_idx].address;
+                let to = if let Some(stream) = self.recipient_keys.as_mut() {
+                    stream.next_signer()?.address()
+                } else {
+                    let to_idx = (current_account_idx + 1) % account_count;
+                    self.accounts.accounts()[to_idx].address
+                };
 
                 let tx_request = self.generator.generate_payload(from, to)?;
 
