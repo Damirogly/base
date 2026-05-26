@@ -1,7 +1,7 @@
-//! Tasks to update the engine state.
+//! Direct engine operation helpers.
 
-mod task;
-pub use task::{EngineTaskError, EngineTaskErrorSeverity, EngineTaskErrors, EngineTaskExt};
+mod severity;
+pub use severity::{EngineTaskError, EngineTaskErrorSeverity};
 
 mod synchronize;
 pub use synchronize::{SynchronizeTask, SynchronizeTaskError};
@@ -13,7 +13,7 @@ mod build;
 pub use build::{BuildTaskError, EngineBuildError};
 
 mod seal;
-pub use seal::{SealTask, SealTaskError};
+pub use seal::SealTaskError;
 
 mod consolidate;
 pub use consolidate::{ConsolidateInput, ConsolidateTaskError};
@@ -23,6 +23,3 @@ pub use delegated_forkchoice::{DelegatedForkchoiceTaskError, DelegatedForkchoice
 
 mod finalize;
 pub use finalize::FinalizeTaskError;
-
-mod util;
-pub(super) use util::{BuildAndSealError, build_and_seal};
