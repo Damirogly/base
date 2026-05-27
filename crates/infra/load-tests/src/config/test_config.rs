@@ -5,16 +5,15 @@ use alloy_signer_local::PrivateKeySigner;
 use serde::{Deserialize, Deserializer, Serialize, de::Error as SerdeError};
 use url::Url;
 
-use crate::{
-    metrics::ConfigSummary,
-    runner::{RealTokenSetup, TxConfig, TxType},
-    utils::{BaselineError, Result},
-};
-
 use super::{
     parsing::{parse_address, parse_amount, validate_swap_amounts},
     precompile::PrecompileTarget,
     real_token::{RealTokenSetupConfig, parse_real_token_setup},
+};
+use crate::{
+    metrics::ConfigSummary,
+    runner::{RealTokenSetup, TxConfig, TxType},
+    utils::{BaselineError, Result},
 };
 
 /// Configuration for a load test, loadable from YAML.
