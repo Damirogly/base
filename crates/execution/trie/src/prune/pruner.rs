@@ -146,7 +146,11 @@ where
             });
         }
 
-        // Fetch block hashes for the new earliest block of this batch
+        // Fetch the block hash for the new earliest block of this batch.
+        //
+        // The parent hash is intentionally not fetched: `prune_earliest_state` only reads
+        // `block.number` and `block.hash` from the supplied `BlockWithParent`. Fetching the
+        // parent hash here was wasted I/O proportional to the number of batches.
         let new_earliest_block_hash = self
             .block_hash_reader
             .block_hash(end_block)
@@ -174,8 +178,9 @@ where
             })?
             .ok_or(PrunerError::BlockNotFound(parent_block_num))?;
 
+
         let block_with_parent = BlockWithParent {
-            parent: parent_block_hash,
+            parent: Default::default(),
             block: BlockNumHash { number: end_block, hash: new_earliest_block_hash },
         };
 

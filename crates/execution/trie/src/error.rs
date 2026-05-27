@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use alloy_primitives::B256;
+use reth_codecs::DecompressError;
 use reth_db::DatabaseError;
 use reth_execution_errors::BlockExecutionError;
 use reth_provider::ProviderError;
@@ -106,6 +107,15 @@ pub enum BaseProofsStorageError {
          Please clear proofs data and retry initialization."
     )]
     InitializeStorageInconsistentState,
+    /// Batch session used after its underlying transaction has been committed or aborted.
+    #[error("Batch session used after its underlying transaction was closed")]
+    BatchSessionClosed,
+}
+
+impl From<DecompressError> for BaseProofsStorageError {
+    fn from(_: DecompressError) -> Self {
+        Self::DatabaseError(DatabaseError::Decode)
+    }
 }
 
 impl From<BlockExecutionError> for BaseProofsStorageError {

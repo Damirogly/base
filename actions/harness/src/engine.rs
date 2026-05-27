@@ -21,7 +21,7 @@ use alloy_rpc_types_eth::{
 };
 use alloy_transport::{TransportError, TransportErrorKind, TransportResult};
 use async_trait::async_trait;
-use base_common_consensus::{BaseBlock, BasePrimitives};
+use base_common_consensus::{BaseBlock, BasePrimitives, BaseReceipt};
 use base_common_genesis::RollupConfig;
 use base_common_network::{Base, BaseEngineApi};
 use base_common_rpc_types::Transaction as BaseTransaction;
@@ -48,13 +48,14 @@ use reth_db::{DatabaseEnv, test_utils::TempDatabase};
 use reth_db_common::init::init_genesis;
 use reth_execution_types::ExecutionOutcome;
 use reth_node_api::NodeTypesWithDBAdapter;
-use reth_payload_primitives::{BuiltPayload, PayloadBuilderAttributes};
+use reth_payload_primitives::{BuiltPayload, PayloadAttributes};
 use reth_primitives_traits::SealedHeader;
 use reth_provider::{
     BlockWriter, HashedPostStateProvider, LatestStateProviderRef, ProviderFactory, StateProvider,
     StateProviderFactory, providers::BlockchainProvider,
     test_utils::create_test_provider_factory_with_node_types,
 };
+use reth_revm::{cached::CachedReads, cancelled::CancelOnDrop};
 use reth_transaction_pool::noop::NoopTransactionPool;
 
 use crate::{SharedBlockHashRegistry, SharedL1Chain};
@@ -92,6 +93,7 @@ pub struct ActionEngineClientInner {
     canonical_head: L2BlockInfo,
     executed_headers: HashMap<u64, Header>,
     executed_infos: HashMap<u64, L2BlockInfo>,
+    executed_receipts: HashMap<u64, Vec<BaseReceipt>>,
     /// Payloads built via FCU-with-attrs (sequencer mode), keyed by `PayloadId`.
     pending_payloads: HashMap<PayloadId, PendingPayload>,
     /// Sealed payloads waiting for explicit insertion, keyed by block hash.
@@ -191,6 +193,11 @@ impl ActionEngineClient {
         } else {
             genesis.config.extra_fields.insert("base".to_string(), base.into());
         }
+        // Generated harness genesis specs use the funded test account as the activation admin.
+        genesis.config.extra_fields.insert(
+            "activationAdminAddress".to_string(),
+            serde_json::json!(crate::TEST_ACCOUNT_ADDRESS),
+        );
 
         genesis
     }
@@ -237,6 +244,7 @@ impl ActionEngineClient {
             canonical_head,
             executed_headers: HashMap::new(),
             executed_infos: HashMap::new(),
+            executed_receipts: HashMap::new(),
             pending_payloads: HashMap::new(),
             sealed_payloads: HashMap::new(),
             payload_counter: 0,
@@ -272,6 +280,12 @@ impl ActionEngineClient {
             .expect("failed to read storage")
             .map(alloy_primitives::U256::from)
             .unwrap_or(alloy_primitives::U256::ZERO)
+    }
+
+    /// Return receipts for an executed block number.
+    pub fn receipts_at(&self, block_number: u64) -> Option<Vec<BaseReceipt>> {
+        let inner = self.inner.lock().expect("engine client lock");
+        inner.executed_receipts.get(&block_number).cloned()
     }
 
     /// Check whether an account has non-empty code deployed.
@@ -322,15 +336,17 @@ impl ActionEngineClient {
                 )))
             })?;
 
+        let payload_id = builder_attrs.payload_id(&effective_parent_hash);
         let parent_sealed = SealedHeader::new(parent_header, effective_parent_hash);
-        let config =
-            PayloadConfig { parent_header: Arc::new(parent_sealed), attributes: builder_attrs };
-        let args = BuildArguments {
+        let config = PayloadConfig::new(Arc::new(parent_sealed), builder_attrs, payload_id);
+        let args = BuildArguments::new(
+            CachedReads::default(),
+            None,
+            None,
             config,
-            cached_reads: Default::default(),
-            cancel: Default::default(),
-            best_payload: None,
-        };
+            CancelOnDrop::default(),
+            None,
+        );
 
         let pool = TestPool::new();
         let payload_builder = BasePayloadBuilder::new(
@@ -374,9 +390,10 @@ impl ActionEngineClient {
         // Commit the block state to the database so subsequent blocks can build on it.
         if let Some(executed) = built.executed_block() {
             let execution_output = executed.execution_output;
+            let receipts = execution_output.result.receipts.clone();
             let execution_outcome = ExecutionOutcome {
                 bundle: execution_output.state.clone(),
-                receipts: vec![execution_output.result.receipts.clone()],
+                receipts: vec![receipts.clone()],
                 first_block: block_number,
                 requests: vec![execution_output.result.requests.clone()],
             };
@@ -421,6 +438,8 @@ impl ActionEngineClient {
                         "failed to rebuild blockchain provider: {e}"
                     )))
                 })?;
+
+            inner.executed_receipts.insert(block_number, receipts);
         }
 
         if let Some(expected_root) = registry.get_state_root(block_number) {
@@ -478,6 +497,7 @@ impl ActionEngineClient {
                 suggested_fee_recipient: payload.fee_recipient,
                 withdrawals: Some(vec![]),
                 parent_beacon_block_root: None,
+                slot_number: None,
             },
             transactions: Some(payload.transactions.clone()),
             no_tx_pool: Some(true),

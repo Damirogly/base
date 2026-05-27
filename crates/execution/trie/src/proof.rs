@@ -15,8 +15,9 @@ use reth_trie::{
     witness::TrieWitness,
 };
 use reth_trie_common::{
-    AccountProof, HashedPostState, HashedPostStateSorted, HashedStorage, MultiProof,
-    MultiProofTargets, StorageMultiProof, StorageProof, TrieInput, updates::TrieUpdates,
+    AccountProof, ExecutionWitnessMode, HashedPostState, HashedPostStateSorted, HashedStorage,
+    MultiProof, MultiProofTargets, StorageMultiProof, StorageProof, TrieInput,
+    updates::TrieUpdates,
 };
 
 use crate::{
@@ -355,6 +356,7 @@ pub trait DatabaseTrieWitness<'tx, S: BaseProofsStore + 'tx + Clone> {
         block_number: u64,
         input: TrieInput,
         target: HashedPostState,
+        mode: ExecutionWitnessMode,
     ) -> Result<B256Map<Bytes>, TrieWitnessError>;
 
     /// Generates the trie witness for the target state, reusing `tx`.
@@ -364,6 +366,7 @@ pub trait DatabaseTrieWitness<'tx, S: BaseProofsStore + 'tx + Clone> {
         block_number: u64,
         input: TrieInput,
         target: HashedPostState,
+        mode: ExecutionWitnessMode,
     ) -> Result<B256Map<Bytes>, TrieWitnessError>
     where
         'tx: 'cursor;
@@ -382,12 +385,13 @@ where
         block_number: u64,
         input: TrieInput,
         target: HashedPostState,
+        mode: ExecutionWitnessMode,
     ) -> Result<B256Map<Bytes>, TrieWitnessError> {
         let tx = storage.ro_tx().map_err(|error| {
             let error = Into::<DatabaseError>::into(error);
             StateProofError::from(error)
         })?;
-        Self::overlay_witness_with_tx(storage, &tx, block_number, input, target)
+        Self::overlay_witness_with_tx(storage, &tx, block_number, input, target, mode)
     }
 
     fn overlay_witness_with_tx<'cursor>(
@@ -396,6 +400,7 @@ where
         block_number: u64,
         input: TrieInput,
         target: HashedPostState,
+        mode: ExecutionWitnessMode,
     ) -> Result<B256Map<Bytes>, TrieWitnessError>
     where
         'tx: 'cursor,
@@ -411,6 +416,7 @@ where
             ))
             .with_prefix_sets_mut(input.prefix_sets)
             .always_include_root_node()
+            .with_execution_witness_mode(mode)
             .compute(target)
     }
 }

@@ -150,9 +150,17 @@ impl<'a> StorageCtx<'a> {
     pub fn gas_used(&self) -> u64 {
         self.with_storage(|s| s.gas_used())
     }
+    /// Returns the state-creating gas spent so far (EIP-8037).
+    pub fn state_gas_used(&self) -> u64 {
+        self.with_storage(|s| s.state_gas_used())
+    }
     /// Returns the gas refunded so far.
     pub fn gas_refunded(&self) -> i64 {
         self.with_storage(|s| s.gas_refunded())
+    }
+    /// Returns the remaining EIP-8037 state-gas reservoir.
+    pub fn reservoir(&self) -> u64 {
+        self.with_storage(|s| s.reservoir())
     }
     /// Returns whether the current call context is static.
     pub fn is_static(&self) -> bool {
@@ -161,6 +169,15 @@ impl<'a> StorageCtx<'a> {
     /// Returns the address that called this precompile.
     pub fn caller(&self) -> Address {
         self.with_storage(|s| s.caller())
+    }
+
+    /// Executes `f` with a temporary caller override, restoring the previous caller on exit.
+    pub fn with_caller<R>(&self, caller: Address, f: impl FnOnce() -> R) -> R {
+        let previous = self.with_storage(|s| s.replace_caller(caller));
+        let guard = CallerGuard { storage: *self, previous: Some(previous) };
+        let result = f();
+        drop(guard);
+        result
     }
 
     /// Deducts gas from the remaining gas, returning `OutOfGas` if insufficient.
@@ -179,9 +196,14 @@ impl<'a> StorageCtx<'a> {
         CheckpointGuard { storage: *self, checkpoint: Some(checkpoint) }
     }
 
-    /// Returns a success [`PrecompileOutput`] with the current gas used.
+    /// Returns a success [`PrecompileOutput`] with the current gas used and accumulated refund.
+    ///
+    /// The `gas_refunded` field is populated so revm's frame handler can propagate it to the
+    /// transaction-level refund counter, where the EIP-3529 cap (`gas_used / 5`) is applied.
     pub fn success_output(&self, output: Bytes) -> PrecompileOutput {
-        PrecompileOutput::new(self.gas_used(), output)
+        let mut out = PrecompileOutput::new(self.gas_used(), output, self.state_gas_used());
+        out.gas_refunded = self.gas_refunded();
+        out
     }
 
     /// Returns an ABI-encoded success output.
@@ -191,7 +213,7 @@ impl<'a> StorageCtx<'a> {
 
     /// Returns a revert [`PrecompileOutput`] with the current gas used.
     pub fn revert_output(&self, output: Bytes) -> PrecompileOutput {
-        PrecompileOutput::new_reverted(self.gas_used(), output)
+        PrecompileOutput::revert(self.gas_used(), output, self.state_gas_used())
     }
 
     /// Reverts with an ABI-encoded error.
@@ -201,7 +223,24 @@ impl<'a> StorageCtx<'a> {
 
     /// Returns a [`PrecompileResult`] constructed from the given error.
     pub fn error_result(&self, error: impl Into<BasePrecompileError>) -> PrecompileResult {
-        error.into().into_precompile_result(self.gas_used())
+        error.into().into_precompile_result(self.gas_used(), self.state_gas_used())
+    }
+}
+
+/// RAII guard for temporary caller overrides.
+#[derive(Debug)]
+struct CallerGuard<'a> {
+    storage: StorageCtx<'a>,
+    previous: Option<Address>,
+}
+
+impl Drop for CallerGuard<'_> {
+    fn drop(&mut self) {
+        if let Some(previous) = self.previous.take() {
+            self.storage.with_storage(|s| {
+                s.replace_caller(previous);
+            });
+        }
     }
 }
 
@@ -333,6 +372,29 @@ mod tests {
     fn test_reentrant_with_storage_panics() {
         let mut storage = crate::hashmap::HashMapStorageProvider::new(1);
         StorageCtx::enter(&mut storage, |ctx| ctx.with_storage(|_| ctx.with_storage(|_| ())));
+    }
+
+    #[test]
+    fn test_with_caller_restores_previous_caller() {
+        let mut storage = crate::hashmap::HashMapStorageProvider::new(1);
+        let original = Address::repeat_byte(0x11);
+        let outer = Address::repeat_byte(0x22);
+        let inner = Address::repeat_byte(0x33);
+        storage.set_caller(original);
+
+        StorageCtx::enter(&mut storage, |ctx| {
+            assert_eq!(ctx.caller(), original);
+            let value = ctx.with_caller(outer, || {
+                assert_eq!(ctx.caller(), outer);
+                ctx.with_caller(inner, || {
+                    assert_eq!(ctx.caller(), inner);
+                    7
+                })
+            });
+
+            assert_eq!(value, 7);
+            assert_eq!(ctx.caller(), original);
+        });
     }
 
     #[test]

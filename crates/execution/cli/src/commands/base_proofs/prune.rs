@@ -70,6 +70,7 @@ impl<C: ChainSpecParser<ChainSpec = BaseChainSpec>> PruneCommand<C> {
     /// Execute [`PruneCommand`].
     pub async fn execute<N: CliNodeTypes<ChainSpec = C::ChainSpec, Primitives = BasePrimitives>>(
         self,
+        runtime: reth_tasks::Runtime,
     ) -> eyre::Result<()> {
         let Self {
             env,
@@ -89,7 +90,7 @@ impl<C: ChainSpecParser<ChainSpec = BaseChainSpec>> PruneCommand<C> {
         );
 
         // Initialize the environment with read-only access
-        let Environment { provider_factory, .. } = env.init::<N>(AccessRights::RO)?;
+        let Environment { provider_factory, .. } = self.env.init::<N>(AccessRights::RO, runtime)?;
 
         match proofs_history_db {
             ProofsHistoryDbBackend::Rocksdb => {

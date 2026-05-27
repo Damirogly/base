@@ -19,3 +19,6 @@ mod cursor;
 pub use cursor::{
     BlockNumberVersionedCursor, Dup, MdbxAccountCursor, MdbxStorageCursor, MdbxTrieCursor,
 };
+
+mod batch;
+pub use batch::{DupRw, MdbxBatchSession};

@@ -2352,7 +2352,7 @@ where
         }
 
         let raw_value = iter.value().ok_or(DatabaseError::Decode)?;
-        T::Value::decompress(raw_value).map(Some)
+        T::Value::decompress(raw_value).map(Some).map_err(|_| DatabaseError::Decode)
     }
 
     fn seek_exact(&mut self, key: T::Key) -> Result<Option<(T::Key, V)>, DatabaseError> {
