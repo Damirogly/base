@@ -40,7 +40,10 @@ use crate::{
     BaseProofsStorageError,
     BaseProofsStorageError::NoBlocksFound,
     BaseProofsStorageResult, BaseProofsStore, BlockStateDiff,
-    api::{BaseProofsInitialStateStore, InitialStateAnchor, InitialStateStatus, WriteCounts},
+    api::{
+        BaseProofsBatchSession, BaseProofsBatchStore, BaseProofsInitialStateStore,
+        InitialStateAnchor, InitialStateStatus, WriteCounts,
+    },
     db::{
         AccountTrieHistory, BlockChangeSet, ChangeSet, HashedAccountHistory, HashedStorageHistory,
         HashedStorageKey, IntoKV, MaybeDeleted, StorageTrieHistory, StorageTrieKey, StorageValue,
@@ -2185,6 +2188,96 @@ impl BaseProofsInitialStateStore for RocksdbProofsStorage {
         let anchor = self.get_initial_state_anchor()?.ok_or(NoBlocksFound)?;
         self.set_earliest_block_number_hash_unlocked(anchor.number, anchor.hash)?;
         Ok(anchor)
+    }
+}
+
+/// Pass-through batch session for [`RocksdbProofsStorage`].
+///
+/// Unlike the MDBX implementation, RocksDB does not expose a transaction cursor readable
+/// mid-session; each `store_trie_updates` call commits immediately via a write batch. All
+/// cursor reads see durably committed state at the time the cursor is opened.
+#[derive(Debug)]
+pub struct RocksdbBatchSession<'a> {
+    storage: &'a RocksdbProofsStorage,
+}
+
+impl BaseProofsBatchSession for RocksdbBatchSession<'_> {
+    type StorageTrieCursor<'a>
+        = RocksdbTrieCursor<'a, StorageTrieHistory>
+    where
+        Self: 'a;
+    type AccountTrieCursor<'a>
+        = RocksdbTrieCursor<'a, AccountTrieHistory>
+    where
+        Self: 'a;
+    type StorageCursor<'a>
+        = RocksdbStorageCursor<'a>
+    where
+        Self: 'a;
+    type AccountHashedCursor<'a>
+        = RocksdbAccountCursor<'a>
+    where
+        Self: 'a;
+
+    fn get_earliest_block_number(&self) -> BaseProofsStorageResult<Option<(u64, B256)>> {
+        self.storage.get_earliest_block_number()
+    }
+
+    fn get_latest_block_number(&self) -> BaseProofsStorageResult<Option<(u64, B256)>> {
+        self.storage.get_latest_block_number()
+    }
+
+    fn storage_trie_cursor(
+        &self,
+        hashed_address: B256,
+        max_block_number: u64,
+    ) -> BaseProofsStorageResult<Self::StorageTrieCursor<'_>> {
+        self.storage.storage_trie_cursor(hashed_address, max_block_number)
+    }
+
+    fn account_trie_cursor(
+        &self,
+        max_block_number: u64,
+    ) -> BaseProofsStorageResult<Self::AccountTrieCursor<'_>> {
+        self.storage.account_trie_cursor(max_block_number)
+    }
+
+    fn storage_hashed_cursor(
+        &self,
+        hashed_address: B256,
+        max_block_number: u64,
+    ) -> BaseProofsStorageResult<Self::StorageCursor<'_>> {
+        self.storage.storage_hashed_cursor(hashed_address, max_block_number)
+    }
+
+    fn account_hashed_cursor(
+        &self,
+        max_block_number: u64,
+    ) -> BaseProofsStorageResult<Self::AccountHashedCursor<'_>> {
+        self.storage.account_hashed_cursor(max_block_number)
+    }
+
+    fn store_trie_updates(
+        &mut self,
+        block_ref: BlockWithParent,
+        block_state_diff: BlockStateDiff,
+    ) -> BaseProofsStorageResult<WriteCounts> {
+        self.storage.store_trie_updates(block_ref, block_state_diff)
+    }
+}
+
+impl BaseProofsBatchStore for RocksdbProofsStorage {
+    type BatchSession<'a>
+        = RocksdbBatchSession<'a>
+    where
+        Self: 'a;
+
+    fn with_batch_session<R, F>(&self, f: F) -> BaseProofsStorageResult<R>
+    where
+        F: FnOnce(&mut Self::BatchSession<'_>) -> BaseProofsStorageResult<R>,
+    {
+        let mut session = RocksdbBatchSession { storage: self };
+        f(&mut session)
     }
 }
 
