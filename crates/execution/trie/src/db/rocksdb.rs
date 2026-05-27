@@ -765,7 +765,13 @@ impl RocksdbProofsStorage {
 
         for (key, survivor_block) in cutoff_items {
             let prefix = encode_history_key_prefix::<T>(&key);
-            let start_key = encode_history_key::<T>(&key, 0);
+            // Under the reversed block-suffix encoding, seeking at
+            // `survivor_block` lands on the newest stored version V with
+            // `V <= survivor_block` and then iterates DESCENDING through
+            // older versions. This is strictly cheaper than the legacy
+            // "start at block 0, walk up" pattern because newer-than-survivor
+            // rows are skipped entirely instead of being scanned past.
+            let start_key = encode_history_key::<T>(&key, survivor_block);
             let read_options = exact_prefix_read_options(&prefix);
             let iter = snapshot.iterator_cf_opt(
                 &cf,
@@ -780,14 +786,16 @@ impl RocksdbProofsStorage {
                 }
 
                 let (_, block_number) = decode_history_key::<T>(&raw_key)?;
-                if block_number >= survivor_block {
+                if block_number > survivor_block {
+                    continue;
+                }
+                if block_number == survivor_block {
                     let value = T::Value::decompress(&raw_value)?;
-                    if block_number == survivor_block && value.value.0.is_none() {
+                    if value.value.0.is_none() {
                         deletes.push(raw_key.to_vec());
                     }
-                    break;
+                    continue;
                 }
-
                 deletes.push(raw_key.to_vec());
             }
         }
@@ -1600,6 +1608,12 @@ impl RocksdbProofsStorage {
         T: RocksDbHistoryTable,
     {
         let cf = self.cf(T::NAME)?;
+        // This returns the lexicographically LARGEST user-key prefix that has
+        // any history entry, used as a resume cursor during initial state
+        // population. The block-suffix encoding (forward or reversed) is
+        // irrelevant here: only the tiebreak among rows sharing a user-key
+        // prefix changes, so `IteratorMode::End` still lands on a row whose
+        // user-key prefix is the maximum.
         let mut iter = self.db.iterator_cf(&cf, IteratorMode::End);
         let Some(item) = iter.next() else {
             return Ok(None);
@@ -2283,7 +2297,13 @@ where
     fn exact_lookup_bounds(&self, key: &T::Key) -> (Vec<u8>, Vec<u8>) {
         let mut target = encode_history_key_prefix::<T>(key);
         let prefix = target.clone();
-        target.extend_from_slice(&self.max_block_number.to_be_bytes());
+        // History keys are encoded with the block-number suffix complemented
+        // (`u64::MAX - block_number`), so larger block numbers produce SMALLER
+        // suffixes. The "target" is therefore the smallest encoded key that
+        // could match: a forward `seek(target)` lands on the first stored
+        // version V with `complement(V) >= complement(max_block_number)`, i.e.
+        // `V <= max_block_number` — the newest version at or below the bound.
+        target.extend_from_slice(&encode_history_block_suffix(self.max_block_number));
         (prefix, target)
     }
 
@@ -2292,7 +2312,11 @@ where
         let (prefix, target) = self.exact_lookup_bounds(&key);
         let read_options = exact_prefix_read_options(&prefix);
         let mut iter = self.snapshot.snapshot().raw_iterator_cf_opt(&cf, read_options);
-        iter.seek_for_prev(&target);
+        // Forward `seek` is the fast path: with reversed block-suffix encoding
+        // the newest version-at-or-below `max_block_number` sorts FIRST within
+        // the prefix box, so we land directly on it instead of paying the
+        // documented 7-8x penalty of `seek_for_prev` (RocksDB PR #5535).
+        iter.seek(&target);
         if !iter.valid() {
             iter.status().map_err(rocksdb_error)?;
             return Ok(None);
@@ -2314,7 +2338,9 @@ where
         let (prefix, target) = self.exact_lookup_bounds(&key);
         let read_options = exact_prefix_read_options(&prefix);
         let mut iter = self.snapshot.snapshot().raw_iterator_cf_opt(&cf, read_options);
-        iter.seek_for_prev(&target);
+        // Forward `seek` is the fast path under the reversed block-suffix
+        // encoding; see `latest_version_for_key` for the full rationale.
+        iter.seek(&target);
         if !iter.valid() {
             iter.status().map_err(rocksdb_error)?;
             return Ok(None);
@@ -2383,7 +2409,14 @@ where
     ) -> Result<Option<(T::Key, V)>, DatabaseError> {
         let found = {
             let cf = self.cf()?;
-            let start_block = if exclusive { u64::MAX } else { 0 };
+            // Under the reversed block-suffix encoding, within a given key's
+            // prefix the SMALLEST encoded suffix is `u64::MAX - u64::MAX = 0`
+            // (i.e. block `u64::MAX`) and the LARGEST is `u64::MAX - 0 =
+            // u64::MAX` (i.e. block `0`). So to start a forward scan at the
+            // first encoded row of `key`, use block `u64::MAX`; to start
+            // strictly after all of `key`'s rows, use block `0` (the
+            // `before_start` filter below then skips the equal-key row).
+            let start_block = if exclusive { 0 } else { u64::MAX };
             let start_key = encode_history_key::<T>(&key, start_block);
             let iter = self.snapshot.snapshot().iterator_cf_opt(
                 &cf,
@@ -2691,7 +2724,7 @@ where
     T: RocksDbHistoryTable,
 {
     let mut encoded = encode_history_key_prefix::<T>(key);
-    encoded.extend_from_slice(&block_number.to_be_bytes());
+    encoded.extend_from_slice(&encode_history_block_suffix(block_number));
     encoded
 }
 
@@ -2711,8 +2744,7 @@ where
     }
     let split = T::KEY_LEN;
     let key = T::decode_history_key_prefix(&raw_key[..split])?;
-    let block_number =
-        u64::from_be_bytes(raw_key[split..].try_into().map_err(|_| DatabaseError::Decode)?);
+    let block_number = decode_history_block_suffix(&raw_key[split..])?;
     Ok((key, block_number))
 }
 
@@ -2851,6 +2883,31 @@ fn decode_block_number(raw_key: &[u8]) -> Result<u64, DatabaseError> {
         return Err(DatabaseError::Decode);
     }
     Ok(u64::from_be_bytes(raw_key.try_into().map_err(|_| DatabaseError::Decode)?))
+}
+
+/// Encodes the block-number suffix attached to history-table keys so that newer
+/// blocks sort BEFORE older blocks under the default `BytewiseComparator`.
+///
+/// This is the standard "complement key" trick (`u64::MAX - block_number`) used
+/// to make "find latest version at or below block N" fast on an LSM-tree: a
+/// forward `seek(target)` followed by `next()` lands on the answer rather than
+/// requiring the much slower `seek_for_prev()` / `prev()` path.
+///
+/// Used ONLY for history-table key suffixes (`AccountTrieHistory`,
+/// `StorageTrieHistory`, `HashedAccountHistory`, `HashedStorageHistory`).
+/// `BlockChangeSet` keys remain plain big-endian (forward range scans).
+const fn encode_history_block_suffix(block_number: u64) -> [u8; 8] {
+    (u64::MAX - block_number).to_be_bytes()
+}
+
+/// Inverse of [`encode_history_block_suffix`].
+fn decode_history_block_suffix(raw_suffix: &[u8]) -> Result<u64, DatabaseError> {
+    if raw_suffix.len() != BLOCK_NUMBER_KEY_LEN {
+        return Err(DatabaseError::Decode);
+    }
+    let complement =
+        u64::from_be_bytes(raw_suffix.try_into().map_err(|_| DatabaseError::Decode)?);
+    Ok(u64::MAX - complement)
 }
 
 fn range_start(range: &impl RangeBounds<u64>) -> u64 {
@@ -3112,6 +3169,62 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn history_block_suffix_round_trip_covers_endpoints_and_interior() {
+        for block_number in [0u64, 1, 42, 1 << 20, u64::MAX / 2, u64::MAX - 1, u64::MAX] {
+            let encoded = encode_history_block_suffix(block_number);
+            let decoded = decode_history_block_suffix(&encoded).unwrap();
+            assert_eq!(decoded, block_number, "round-trip failed at block {block_number}");
+        }
+    }
+
+    #[test]
+    fn history_block_suffix_reverses_lexicographic_order() {
+        // Complement encoding: newer block must sort BEFORE older block under the default
+        // BytewiseComparator, so a forward seek(target) + next() finds "latest version <= N".
+        let blocks = [0u64, 1, 2, 100, 1_000_000, u64::MAX - 1, u64::MAX];
+        for left in blocks {
+            for right in blocks {
+                let encoded_cmp = encode_history_block_suffix(left)
+                    .cmp(&encode_history_block_suffix(right));
+                assert_eq!(
+                    encoded_cmp,
+                    right.cmp(&left),
+                    "expected reversed ordering for ({left}, {right})",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn history_block_suffix_boundary_values_are_complementary() {
+        assert_eq!(encode_history_block_suffix(0), [0xFF; BLOCK_NUMBER_KEY_LEN]);
+        assert_eq!(encode_history_block_suffix(u64::MAX), [0x00; BLOCK_NUMBER_KEY_LEN]);
+        assert_eq!(decode_history_block_suffix(&[0xFF; BLOCK_NUMBER_KEY_LEN]).unwrap(), 0);
+        assert_eq!(decode_history_block_suffix(&[0x00; BLOCK_NUMBER_KEY_LEN]).unwrap(), u64::MAX);
+    }
+
+    #[test]
+    fn decode_history_block_suffix_rejects_wrong_length() {
+        assert!(decode_history_block_suffix(&[]).is_err());
+        assert!(decode_history_block_suffix(&[0u8; BLOCK_NUMBER_KEY_LEN - 1]).is_err());
+        assert!(decode_history_block_suffix(&[0u8; BLOCK_NUMBER_KEY_LEN + 1]).is_err());
+    }
+
+    #[test]
+    fn encoded_history_key_orders_newer_blocks_before_older_for_same_prefix() {
+        let prefix = B256::repeat_byte(0x7F);
+        let older = encode_history_key::<HashedAccountHistory>(&prefix, 10);
+        let newer = encode_history_key::<HashedAccountHistory>(&prefix, 100);
+        assert!(newer < older, "newer block must sort before older under complement encoding");
+
+        // Shared prefix preservation is what keeps RocksDB prefix bloom filters correct
+        // for forward seeks on history tables.
+        let prefix_bytes = encode_history_key_prefix::<HashedAccountHistory>(&prefix);
+        assert!(older.starts_with(&prefix_bytes));
+        assert!(newer.starts_with(&prefix_bytes));
     }
 
     #[test]
