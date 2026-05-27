@@ -178,7 +178,6 @@ where
             })?
             .ok_or(PrunerError::BlockNotFound(parent_block_num))?;
 
-
         let block_with_parent = BlockWithParent {
             parent: Default::default(),
             block: BlockNumHash { number: end_block, hash: new_earliest_block_hash },

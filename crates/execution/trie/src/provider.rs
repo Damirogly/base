@@ -13,12 +13,12 @@ use reth_revm::{
     db::BundleState,
     primitives::{Address, B256, Bytes, StorageValue, alloy_primitives::BlockNumber},
 };
+use reth_trie::hashed_cursor::HashedCursor;
 use reth_trie::{
     StateRoot, StorageRoot,
     proof::{self, Proof},
     witness::TrieWitness,
 };
-use reth_trie::hashed_cursor::HashedCursor;
 use reth_trie_common::{
     AccountProof, ExecutionWitnessMode, HashedPostState, HashedStorage, KeccakKeyHasher,
     MultiProof, MultiProofTargets, StorageMultiProof, StorageProof, TrieInput,
@@ -261,7 +261,6 @@ where
         let hashed_key = keccak256(storage_key);
         self.storage_by_hashed_key(address, hashed_key)
     }
-
 }
 
 impl<'a, Storage: BaseProofsStore> BytecodeReader for BaseProofsStateProviderRef<'a, Storage> {

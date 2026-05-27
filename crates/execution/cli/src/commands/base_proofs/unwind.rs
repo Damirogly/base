@@ -182,7 +182,6 @@ impl<C: ChainSpecParser<ChainSpec = BaseChainSpec>> UnwindCommand<C> {
     }
 }
 
-
 impl<C: ChainSpecParser> UnwindCommand<C> {
     /// Returns the underlying chain being used to run this command
     pub const fn chain_spec(&self) -> Option<&Arc<C::ChainSpec>> {
