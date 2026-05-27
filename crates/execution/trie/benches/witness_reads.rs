@@ -215,13 +215,13 @@ fn read_accounts_storage_and_witness(fixture: &WitnessReadFixture) -> usize {
         .build();
     let reads = read_accounts_and_storage_with_state(&mut state, fixture);
     let ExecutionWitnessRecord { hashed_state, codes, keys, lowest_block_number } =
-        ExecutionWitnessRecord::from_executed_state(&state, ExecutionWitnessMode::Full);
+        ExecutionWitnessRecord::from_executed_state(&state, ExecutionWitnessMode::default());
     black_box(codes);
     black_box(keys);
     black_box(lowest_block_number);
     black_box(
         provider
-            .witness(TrieInput::default(), hashed_state, ExecutionWitnessMode::Full)
+            .witness(TrieInput::default(), hashed_state, ExecutionWitnessMode::default())
             .expect("build witness"),
     );
     reads
