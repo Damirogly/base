@@ -153,14 +153,15 @@ fn validate_fixture(fixture: &DeepHistoryFixture) {
         VERSIONS_PER_KEY,
     );
     let mid_block = VERSIONS_PER_KEY / 2;
-    let mid_provider =
-        BaseProofsStateProviderRef::new(Box::<NoopProvider>::default(), &fixture.storage, mid_block);
+    let mid_provider = BaseProofsStateProviderRef::new(
+        Box::<NoopProvider>::default(),
+        &fixture.storage,
+        mid_block,
+    );
 
     for (index, target) in fixture.accounts.iter().enumerate().take(8) {
-        let head = head_provider
-            .basic_account(&target.address)
-            .expect("head read")
-            .expect("head exists");
+        let head =
+            head_provider.basic_account(&target.address).expect("head read").expect("head exists");
         assert_eq!(head, account_at_version(index, VERSIONS_PER_KEY));
 
         let mid =

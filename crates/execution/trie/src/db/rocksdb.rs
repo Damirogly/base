@@ -2905,8 +2905,7 @@ fn decode_history_block_suffix(raw_suffix: &[u8]) -> Result<u64, DatabaseError> 
     if raw_suffix.len() != BLOCK_NUMBER_KEY_LEN {
         return Err(DatabaseError::Decode);
     }
-    let complement =
-        u64::from_be_bytes(raw_suffix.try_into().map_err(|_| DatabaseError::Decode)?);
+    let complement = u64::from_be_bytes(raw_suffix.try_into().map_err(|_| DatabaseError::Decode)?);
     Ok(u64::MAX - complement)
 }
 
@@ -3187,8 +3186,8 @@ mod tests {
         let blocks = [0u64, 1, 2, 100, 1_000_000, u64::MAX - 1, u64::MAX];
         for left in blocks {
             for right in blocks {
-                let encoded_cmp = encode_history_block_suffix(left)
-                    .cmp(&encode_history_block_suffix(right));
+                let encoded_cmp =
+                    encode_history_block_suffix(left).cmp(&encode_history_block_suffix(right));
                 assert_eq!(
                     encoded_cmp,
                     right.cmp(&left),
