@@ -366,7 +366,6 @@ reth-payload-util = { git = "https://github.com/paradigmxyz/reth", tag = "v2.2.0
 reth-node-builder = { git = "https://github.com/paradigmxyz/reth", tag = "v2.2.0" }
 reth-node-metrics = { git = "https://github.com/paradigmxyz/reth", tag = "v2.2.0" }
 reth-cli-commands = { git = "https://github.com/paradigmxyz/reth", tag = "v2.2.0" }
-reth-ethereum-cli = { git = "https://github.com/paradigmxyz/reth", tag = "v2.2.0" }
 reth-evm-ethereum = { git = "https://github.com/paradigmxyz/reth", tag = "v2.2.0" }
 reth-tracing-otlp = { git = "https://github.com/paradigmxyz/reth", tag = "v2.2.0" }
 reth-testing-utils = { git = "https://github.com/paradigmxyz/reth", tag = "v2.2.0" }
@@ -391,11 +390,8 @@ reth-basic-payload-builder = { git = "https://github.com/paradigmxyz/reth", tag 
 reth-payload-builder-primitives = { git = "https://github.com/paradigmxyz/reth", tag = "v2.2.0" }
 reth-prune-types = { git = "https://github.com/paradigmxyz/reth", tag = "v2.2.0", default-features = false }
 reth-stages-types = { git = "https://github.com/paradigmxyz/reth", tag = "v2.2.0", default-features = false }
-reth-config = { git = "https://github.com/paradigmxyz/reth", tag = "v2.2.0" }
-reth-fs-util = { git = "https://github.com/paradigmxyz/reth", tag = "v2.2.0" }
 reth-storage-errors = { git = "https://github.com/paradigmxyz/reth", tag = "v2.2.0", default-features = false }
 reth-ethereum-forks = { git = "https://github.com/paradigmxyz/reth", tag = "v2.2.0", default-features = false }
-reth-static-file-types = { git = "https://github.com/paradigmxyz/reth", tag = "v2.2.0" }
 reth-consensus-common = { git = "https://github.com/paradigmxyz/reth", tag = "v2.2.0", default-features = false }
 reth-zstd-compressors = { version = "0.3.1", default-features = false }
 
@@ -540,7 +536,6 @@ log = "0.4.22"
 anyhow = "1.0"
 rayon = "1.11"
 nanoid = "0.4"
-lz4 = "1.28"
 tar = "0.4.44"
 backon = "1.6"
 dotenv = "0.15.0"
@@ -614,7 +609,7 @@ async-stream = "0.3"
 async-channel = "2.5"
 alloc-no-stdlib = "2.0"
 libp2p-stream = "0.4.0-alpha"
-toml = "1.0"
+toml = { version = "1.0", default-features = false }
 ark-ff = { version = "0.5.0", default-features = false }
 unsigned-varint = { version = "0.8", default-features = false }
 ark-bls12-381 = { version = "0.5.0", default-features = false }
