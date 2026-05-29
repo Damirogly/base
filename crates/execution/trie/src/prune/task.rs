@@ -32,7 +32,7 @@ where
     H: BlockHashReader + Send + Sync + 'static,
 {
     /// Initialize a new [`BaseProofStoragePrunerTask`]
-    pub fn new(
+    pub const fn new(
         provider: BaseProofsStorage<P>,
         hash_reader: H,
         retention_blocks: u64,

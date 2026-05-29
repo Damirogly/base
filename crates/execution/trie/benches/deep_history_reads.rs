@@ -1,6 +1,6 @@
 //! Benchmarks the proofs-history read path against DEEP per-key version chains.
 //!
-//! Seeds a `RocksDB` proofs-history store with `BASE_ACCOUNTS` accounts, each
+//! Seeds a [`RocksDB`] proofs-history store with `BASE_ACCOUNTS` accounts, each
 //! one updated `VERSIONS_PER_KEY` times across sequential blocks, so every
 //! `HashedAccountHistory` user-key has a long version chain. Then drives
 //! `TARGET_ACCOUNTS` reads through the same `StateProviderDatabase` path that
@@ -11,7 +11,7 @@
 //! This is where the complement-key encoding's asymptotic win should show: the
 //! reversed encoding turns the "latest version <= N" lookup into a single
 //! `seek()` instead of a `seek_for_prev()` that on the LSM-tree memtable runs
-//! 7-8x slower (RocksDB PR #5535).
+//! 7-8x slower (`RocksDB` PR #5535).
 
 use std::{hint::black_box, sync::Arc};
 
@@ -77,7 +77,7 @@ fn missing_addresses() -> Vec<Address> {
     (0..MISSING_ACCOUNTS).map(|index| Address::repeat_byte(0x80 | index as u8)).collect()
 }
 
-fn block_for(number: u64, parent: B256) -> BlockWithParent {
+const fn block_for(number: u64, parent: B256) -> BlockWithParent {
     BlockWithParent {
         parent,
         block: BlockNumHash {

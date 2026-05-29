@@ -2193,7 +2193,7 @@ impl BaseProofsInitialStateStore for RocksdbProofsStorage {
 
 /// Pass-through batch session for [`RocksdbProofsStorage`].
 ///
-/// Unlike the MDBX implementation, RocksDB does not expose a transaction cursor readable
+/// Unlike the MDBX implementation, `RocksDB` does not expose a transaction cursor readable
 /// mid-session; each `store_trie_updates` call commits immediately via a write batch. All
 /// cursor reads see durably committed state at the time the cursor is opened.
 #[derive(Debug)]
