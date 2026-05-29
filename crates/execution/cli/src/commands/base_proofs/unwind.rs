@@ -50,6 +50,7 @@ impl<C: ChainSpecParser<ChainSpec = BaseChainSpec>> UnwindCommand<C> {
     /// Execute [`UnwindCommand`].
     pub async fn execute<N: CliNodeTypes<ChainSpec = C::ChainSpec, Primitives = BasePrimitives>>(
         self,
+        runtime: reth_tasks::Runtime,
     ) -> eyre::Result<()> {
         let Self { env, storage_path, proofs_history_db, proofs_history_rocksdb, target } = self;
 
@@ -62,7 +63,7 @@ impl<C: ChainSpecParser<ChainSpec = BaseChainSpec>> UnwindCommand<C> {
         );
 
         // Initialize the environment with read-only access
-        let Environment { provider_factory, .. } = env.init::<N>(AccessRights::RO)?;
+        let Environment { provider_factory, .. } = env.init::<N>(AccessRights::RO, runtime)?;
 
         match proofs_history_db {
             ProofsHistoryDbBackend::Rocksdb => {
@@ -141,44 +142,6 @@ impl<C: ChainSpecParser<ChainSpec = BaseChainSpec>> UnwindCommand<C> {
         }
 
         Ok(true)
-    }
-}
-
-impl<C: ChainSpecParser<ChainSpec = BaseChainSpec>> UnwindCommand<C> {
-    /// Execute [`UnwindCommand`].
-    pub async fn execute<N: CliNodeTypes<ChainSpec = C::ChainSpec, Primitives = BasePrimitives>>(
-        self,
-        runtime: reth_tasks::Runtime,
-    ) -> eyre::Result<()> {
-        info!(target: "reth::cli", version = %version_metadata().short_version, "reth starting");
-        info!(target: "reth::cli", path = ?self.storage_path, "Unwinding Base proofs storage");
-
-        // Initialize the environment with read-only access
-        let Environment { provider_factory, .. } = self.env.init::<N>(AccessRights::RO, runtime)?;
-
-        // Create the proofs storage
-        let storage: BaseProofsStorage<Arc<MdbxProofsStorage>> = Arc::new(
-            MdbxProofsStorage::new(&self.storage_path)
-                .map_err(|e| eyre::eyre!("Failed to create MdbxProofsStorage: {e}"))?,
-        )
-        .into();
-
-        // Validate that the target block is within a valid range for unwinding
-        if !self.validate_unwind_range(&storage)? {
-            return Ok(());
-        }
-
-        // Get the target block from the main database
-        let block = provider_factory
-            .recovered_block(self.target.into(), TransactionVariant::NoHash)?
-            .ok_or_else(|| {
-                eyre::eyre!("Target block {} not found in the main database", self.target)
-            })?;
-
-        info!(target: "reth::cli", block_number = block.number, block_hash = %block.hash(), "Unwinding to target block");
-        storage.unwind_history(block.block_with_parent())?;
-
-        Ok(())
     }
 }
 

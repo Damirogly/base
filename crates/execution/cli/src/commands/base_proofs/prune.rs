@@ -90,7 +90,7 @@ impl<C: ChainSpecParser<ChainSpec = BaseChainSpec>> PruneCommand<C> {
         );
 
         // Initialize the environment with read-only access
-        let Environment { provider_factory, .. } = self.env.init::<N>(AccessRights::RO, runtime)?;
+        let Environment { provider_factory, .. } = env.init::<N>(AccessRights::RO, runtime)?;
 
         match proofs_history_db {
             ProofsHistoryDbBackend::Rocksdb => {
