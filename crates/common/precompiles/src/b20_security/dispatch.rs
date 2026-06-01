@@ -61,7 +61,7 @@ impl<S: SecurityAccounting, P: Policy> B20SecurityToken<S, P> {
     }
 
     /// Returns the configured policy ID for `policy_scope`.
-    fn policy_id_checked(&self, policy_scope: B256) -> base_precompile_storage::Result<u64> {
+    fn policy_id(&self, policy_scope: B256) -> base_precompile_storage::Result<u64> {
         Self::ensure_supported_policy_type(policy_scope)?;
         self.accounting().policy_id(policy_scope)
     }
@@ -240,7 +240,7 @@ impl<S: SecurityAccounting, P: Policy> B20SecurityToken<S, P> {
             C::isPaused(c) => self.is_paused(c.feature)?.abi_encode().into(),
 
             // --- Policy reads ---
-            C::policyId(c) => self.policy_id_checked(c.policyScope)?.abi_encode().into(),
+            C::policyId(c) => self.policy_id(c.policyScope)?.abi_encode().into(),
 
             // --- Domain reads ---
             C::DOMAIN_SEPARATOR(_) => self.domain_separator(ctx.chain_id())?.abi_encode().into(),
